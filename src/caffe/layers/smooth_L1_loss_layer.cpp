@@ -51,13 +51,93 @@ void SmoothL1LossLayer<Dtype>::Reshape(
 template <typename Dtype>
 void SmoothL1LossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     const vector<Blob<Dtype>*>& top) {
-  NOT_IMPLEMENTED;
+  //NOT_IMPLEMENTED;
+  // cpu implementation
+  CHECK_EQ(bottom[0]->count(1), bottom[1]->count(1))
+      << "Inputs must have the same dimension.";
+  int count = bottom[0]->count();
+  caffe_sub(count, 
+            bottom[0]->cpu_data(), 
+            bottom[1]->cpu_data(),
+            diff_.mutable_cpu_data());
+
+  if(has_weights_){
+    caffe_mul(count, 
+              bottom[2]->cpu_data(), 
+              diff_.cpu_data(), 
+              diff_.mutable_cpu_data());
+  }
+  // f(x) = 0.5 * (sigma * x)^2          if |x| < 1 / sigma / sigma
+  //        |x| - 0.5 / sigma / sigma    otherwise
+  const Dtype* in = diff_.cpu_data();
+  Dtype* out = errors_.mutable_cpu_data();
+  for(int index=0; index<count; ++index){
+    Dtype val = in[index];
+    Dtype abs_val = abs(val);
+    if(abs_val < 1.0 / sigma2_){
+        out[index] = 0.5 * val * val * sigma2_;
+    }
+    else{
+        out[index] = abs_val - 0.5 / sigma2_;
+    }
+  }
+
+  if(has_weights_){
+    caffe_mul(count, bottom[3]->cpu_data(), out, errors_.mutable_cpu_data());
+  }
+
+  // compute loss
+  Dtype loss = caffe_cpu_dot(count, ones_.cpu_data(), errors_.cpu_data());
+  top[0]->mutable_cpu_data()[0] = loss / bottom[0]->num();
+  // end cpu implementation
+
 }
 
 template <typename Dtype>
 void SmoothL1LossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
-  NOT_IMPLEMENTED;
+  //NOT_IMPLEMENTED;
+  // cpu implementation
+  int count = diff_.count();
+  const Dtype* in = diff_.cpu_data();
+  Dtype* out = diff_.mutable_cpu_data();
+  for(int index=0; index < count; index++){
+    Dtype val = in[index];
+    Dtype abs_val = abs(val);
+    if(abs_val < 1.0 / sigma2_){
+        out[index] = sigma2_ *  val;
+    } 
+    else{
+        out[index] = (Dtype(0) < val) - (val < Dtype(0));
+    }
+  }
+
+  for(int i=0; i<2; ++i){
+    if(propagate_down[i]){
+        const Dtype sign = (i == 0) ? 1 : -1;
+        const Dtype alpha = sign * top[0]->cpu_diff()[0] / bottom[i]->num();
+        caffe_cpu_axpby(
+            count, 
+            alpha, 
+            out,//diff_.cpu_data(), 
+            Dtype(0), 
+            bottom[i]->mutable_cpu_diff());
+
+        if(has_weights_){
+            caffe_mul(
+                count, 
+                bottom[2]->cpu_data(), 
+                bottom[i]->cpu_diff(), 
+                bottom[i]->mutable_cpu_data());
+            caffe_mul(
+                count,
+                bottom[3]->cpu_data(),
+                bottom[i]->cpu_diff(),
+                bottom[i]->mutable_cpu_data());
+        }
+    }
+  }
+  // end cpu implementation
 }
 
 #ifdef CPU_ONLY

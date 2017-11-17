@@ -6,6 +6,13 @@
 #include "caffe/util/im2col.hpp"
 #include "caffe/util/math_functions.hpp"
 
+using std::max;
+using std::min;
+using std::floor;
+using std::ceil;
+using std::cout;
+using std::endl;
+
 namespace caffe {
 
 template <typename Dtype>
